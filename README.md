@@ -34,8 +34,9 @@ THUMBS_DIR/
 ```
 
 Adding a new system later is just `git clone`ing another repo into
-`THUMBS_DIR` and restarting the container - no code change unless the
-system also needs a new `SYSTEM_MAP` entry (see below).
+`THUMBS_DIR` and calling `POST /reindex` (see API below) - no restart, no
+code change unless the system also needs a new `SYSTEM_MAP` entry (see
+below).
 
 ## Running it
 
@@ -52,13 +53,12 @@ fuzzy matching, `http.server` for the API itself, same minimal-footprint
 approach the rest of this ecosystem (`mister_status_server.py`,
 `mister_turing_client`) already uses.
 
-**Not yet actually run in a container** - the dev sandbox this was built in
-has no Docker daemon available, so `app.py`'s logic was verified directly
-(`python3 app.py`, real queries against real cloned data - see below), but
-`docker compose up --build` itself hasn't been exercised. The Dockerfile
-is straightforward (stdlib-only, no build step beyond copying one file),
-so this is low-risk, but worth an actual `docker compose up` smoke test
-before relying on it.
+Deployed and confirmed running in production via `docker compose` on a
+Synology NAS (not the sandbox this was developed in, which has no Docker
+daemon - `app.py`'s logic was verified directly there via `python3 app.py`
+against real cloned data first, then the containerized deploy separately
+confirmed with a real `/health` check and a real `/artwork` fetch over the
+network).
 
 ## API
 
@@ -70,6 +70,14 @@ GET /artwork?system=<mister core_raw>&game=<title>&type=boxart|snap|title|logo
 
 GET /health
     200  {"status": "ok", "systems_loaded": [...]}   repo directories actually found under THUMBS_DIR
+
+POST /reindex
+    200  {"status": "ok", "systems_loaded": [...], "titles_indexed": N, "elapsed_seconds": T}
+         Rescans THUMBS_DIR from scratch - call this after git clone-ing a
+         new repo (or git pull-ing an existing one) into it. Safe to call
+         while the server is handling other requests: the index is rebuilt
+         into a fresh dict and swapped in atomically, so a concurrent GET
+         never sees a partially-rebuilt index.
 ```
 
 Matching: filenames are normalized by stripping the extension and every

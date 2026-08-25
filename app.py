@@ -28,6 +28,10 @@ API:
         -> 200 image/png on match, 404 {"error": ...} otherwise
     GET /health
         -> 200 {"status": "ok", "systems_loaded": [...]}
+    POST /reindex
+        -> 200 {"status": "ok", "systems_loaded": [...], "titles_indexed": N, "elapsed_seconds": T}
+           Rescans THUMBS_DIR - call this after `git clone`ing a new repo
+           (or `git pull`ing an existing one) into it, no restart needed.
 """
 
 import http.server
@@ -36,6 +40,7 @@ import os
 import re
 import socketserver
 import sys
+import time
 import urllib.parse
 from difflib import get_close_matches
 
@@ -112,6 +117,13 @@ def _candidate_rank(filename: str):
 
 
 def build_index():
+    """Scan THUMBS_DIR and replace the live index. Safe to call again at any
+    time (see do_POST's /reindex) even while GETs are being served
+    concurrently on other threads: the new index is built entirely in a
+    local dict first, and only swapped into the global via _index_ready()
+    once complete - a single reference reassignment, atomic under the GIL,
+    so a concurrent reader always sees either the complete old index or the
+    complete new one, never a partially-rebuilt one."""
     global _systems_loaded
     index = {}
     loaded = []
@@ -199,8 +211,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if entry is None:
             self._respond_json(
                 404,
-                {"error": f"no local data for {repo_dir}/{type_dir} - "
-                          f"clone that repo into {THUMBS_DIR} and restart"},
+                {"error": f"no local data for {repo_dir}/{type_dir} - clone that repo "
+                          f"into {THUMBS_DIR} and POST /reindex"},
             )
             return
 
@@ -232,6 +244,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("X-Match-Method", match_method)
         self.end_headers()
         self.wfile.write(data)
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+
+        if parsed.path != "/reindex":
+            self._respond_json(404, {"error": "not found"})
+            return
+
+        # Same build_index() the startup path uses, run again on demand -
+        # see build_index()'s docstring for why this is safe against
+        # concurrent GETs (a full replacement dict, swapped in atomically,
+        # never mutated in place).
+        started = time.time()
+        build_index()
+        elapsed = time.time() - started
+        titles = sum(len(v["titles"]) for v in _index.values())
+        print(f"[artwork-api] reindexed: {len(_systems_loaded)} systems, "
+              f"{titles} titles, {elapsed:.2f}s")
+        self._respond_json(200, {
+            "status": "ok",
+            "systems_loaded": _systems_loaded,
+            "titles_indexed": titles,
+            "elapsed_seconds": round(elapsed, 2),
+        })
 
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
