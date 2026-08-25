@@ -282,6 +282,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "image/png")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Match-Method", match_method)
+        # Lets a caller (or a curl -I from wherever this API isn't
+        # directly SSH-reachable from) see what actually matched without
+        # needing the server's own stdout log - the difference between "the
+        # right game, wrong media" and "the wrong game entirely" isn't
+        # visible from the image bytes alone.
+        self.send_header("X-Match-Filename", urllib.parse.quote(filename))
         self.end_headers()
         self.wfile.write(data)
 
