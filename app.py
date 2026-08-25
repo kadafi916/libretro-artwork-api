@@ -42,7 +42,7 @@ import socketserver
 import sys
 import time
 import urllib.parse
-from difflib import get_close_matches
+from difflib import SequenceMatcher, get_close_matches
 
 THUMBS_DIR = os.environ.get("THUMBS_DIR", "/data")
 PORT = int(os.environ.get("PORT", "8478"))
@@ -253,6 +253,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 match_method = "fuzzy"
 
         if filename is None:
+            # Log the closest title regardless of cutoff (not just whether
+            # one cleared FUZZY_CUTOFF) - previously a no-match here left no
+            # trace at all, making it impossible to tell "the query title
+            # was wildly different from anything on file" (e.g. a raw MAME
+            # short-name reaching this instead of a real title) apart from
+            # "it was close but just missed the cutoff".
+            closest = get_close_matches(norm, entry["titles"], n=1, cutoff=0.0)
+            if closest:
+                ratio = SequenceMatcher(None, norm, closest[0]).ratio()
+                print(f"[artwork-api] no match: {system}/{media_type} '{game}' - "
+                      f"closest on file: '{closest[0]}' (ratio {ratio:.2f}, cutoff {FUZZY_CUTOFF})")
+            else:
+                print(f"[artwork-api] no match: {system}/{media_type} '{game}' - index is empty")
             self._respond_json(404, {"error": "no match", "system": repo_dir, "game": game})
             return
 
