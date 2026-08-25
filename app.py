@@ -75,12 +75,19 @@ SYSTEM_MAP = {
     "tgfx16": "NEC_-_PC_Engine_-_TurboGrafx_16",
     "pcengine": "NEC_-_PC_Engine_-_TurboGrafx_16",
     "turbografx16": "NEC_-_PC_Engine_-_TurboGrafx_16",
-    # Verified repo names not yet cloned locally - safe to leave mapped;
-    # they simply 404 with a clear "no local data" message until cloned.
     "snes": "Nintendo_-_Super_Nintendo_Entertainment_System",
     "genesis": "Sega_-_Mega_Drive_-_Genesis",
     "megadrive": "Sega_-_Mega_Drive_-_Genesis",
     "md": "Sega_-_Mega_Drive_-_Genesis",
+    "atarilynx": "Atari_-_Lynx",
+    "atarilynx2p": "Atari_-_Lynx",
+    "neogeo": "SNK_-_Neo_Geo",
+    "neo-geo": "SNK_-_Neo_Geo",
+    "saturn": "Sega_-_Saturn",
+    "psx": "Sony_-_PlayStation",
+    "playstation": "Sony_-_PlayStation",
+    # Verified repo name, not yet cloned locally - safe to leave mapped; it
+    # simply 404s with a clear "no local data" message until cloned.
     "arcade": "MAME",
     "mame": "MAME",
 }
