@@ -99,6 +99,22 @@ SYSTEM_MAP = {
     "sms": "Sega_-_Master_System_-_Mark_III",
     "megacd": "Sega_-_Mega-CD_-_Sega_CD",
     "segacd": "Sega_-_Mega-CD_-_Sega_CD",
+    "gbc": "Nintendo_-_Game_Boy_Color",
+    "gameboycolor": "Nintendo_-_Game_Boy_Color",
+    "s32x": "Sega_-_32X",
+    "wonderswan": "Bandai_-_WonderSwan",
+    "wonderswancolor": "Bandai_-_WonderSwan_Color",
+    "3do": "The_3DO_Company_-_3DO",
+    # Same unreachable-but-cloned situation as SNK_-_Neo_Geo_CD below:
+    # NEC_-_PC_Engine_CD_-_TurboGrafx-CD (MiSTer's TGFX16 core plays both
+    # cartridge and CD-ROM² games under the same "tgfx16" core_raw),
+    # Nintendo_-_Nintendo_64DD, and Sega_-_SG-1000 (likely played via the
+    # Master System core, sharing "mastersystem"/"sms" - already mapped to
+    # the Master System repo, so leaving SG-1000 unmapped rather than
+    # wrongly routing all SMS art requests to the smaller SG-1000 set) all
+    # have no MiSTer core_raw of their own to route through - left
+    # deliberately unmapped rather than guessed at.
+    #
     # SNK_-_Neo_Geo_CD has no MiSTer core_raw of its own to map from: the
     # NeoGeo core reports core_raw "neogeo" (see above) for both cartridge
     # and CD games alike, so there's no signal here to route a CD title to
