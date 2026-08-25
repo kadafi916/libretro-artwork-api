@@ -28,6 +28,11 @@ API:
         -> 200 image/png on match, 404 {"error": ...} otherwise
     GET /health
         -> 200 {"status": "ok", "systems_loaded": [...]}
+    GET /coverage
+        -> 200 {"systems_loaded": [...], "mapped_not_cloned": [...],
+                 "cloned_not_mapped": [...], "aliases_by_repo": {...},
+                 "title_counts": {repo: {type_dir: N, ...}, ...}}
+           SYSTEM_MAP/THUMBS_DIR gap report - see do_GET's comment.
     POST /reindex
         -> 200 {"status": "ok", "systems_loaded": [...], "titles_indexed": N, "elapsed_seconds": T}
            Rescans THUMBS_DIR - call this after `git clone`ing a new repo
@@ -145,6 +150,25 @@ def normalize_title(name: str) -> str:
     return name
 
 
+def _differentiator_tokens(norm_title: str) -> set:
+    """The short (single-character or purely-numeric) words in a normalized
+    title - the tokens that usually distinguish entries in a series
+    ("x" in "metal slug x", "3" in "bonk 3"). Deliberately narrow: only
+    single characters and pure digits, not e.g. roman numerals (too easy to
+    false-positive on ordinary short words - "mix", "ix" - to parse safely
+    without real roman-numeral-aware tokenizing, which this doesn't attempt).
+
+    Used to keep whole-string fuzzy matching (SequenceMatcher, via
+    get_close_matches - good at absorbing spacing/typo variance, e.g. the
+    documented "Super Dodgeball" -> "Super Dodge Ball" case) from also
+    accepting a *different* entry in the same series just because most of
+    the title matches. Verified real failure this was built for: a query
+    for "Metal Slug X" fuzzy-matched an entry with no "x" anywhere in it at
+    all - character-level similarity alone can't tell "same title, minor
+    variance" apart from "different entry, mostly-shared name"."""
+    return {w for w in norm_title.split() if w.isdigit() or len(w) == 1}
+
+
 def _candidate_rank(filename: str):
     """Lower is better. Region match first (USA > World > Europe > Japan >
     unknown), then shortest filename as a tiebreaker - prefers a plain
@@ -226,6 +250,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._respond_json(200, {"status": "ok", "systems_loaded": _systems_loaded})
             return
 
+        if parsed.path == "/coverage":
+            # Makes SYSTEM_MAP/THUMBS_DIR gaps visible directly instead of
+            # discovered one 404 at a time - the two ways this setup drifts
+            # out of sync: a repo cloned into THUMBS_DIR with no core_raw
+            # alias pointing to it yet (cloned_not_mapped - needs a
+            # SYSTEM_MAP entry, see app.py's own comments on which systems
+            # can't have one at all), and a SYSTEM_MAP alias pointing at a
+            # repo not actually cloned yet (mapped_not_cloned - needs a
+            # `git clone` + /reindex, or is deliberately left mapped ahead
+            # of time, like "arcade"/"mame" -> MAME).
+            mapped_repos = set(SYSTEM_MAP.values())
+            cloned_repos = set(_systems_loaded)
+            aliases_by_repo = {}
+            for alias, repo in SYSTEM_MAP.items():
+                aliases_by_repo.setdefault(repo, []).append(alias)
+            title_counts = {}
+            for (repo_dir, type_dir), data in _index.items():
+                title_counts.setdefault(repo_dir, {})[type_dir] = len(data["titles"])
+            self._respond_json(200, {
+                "systems_loaded": sorted(cloned_repos),
+                "mapped_not_cloned": sorted(mapped_repos - cloned_repos),
+                "cloned_not_mapped": sorted(cloned_repos - mapped_repos),
+                "aliases_by_repo": {r: sorted(a) for r, a in aliases_by_repo.items()},
+                "title_counts": title_counts,
+            })
+            return
+
         if parsed.path != "/artwork":
             self._respond_json(404, {"error": "not found"})
             return
@@ -262,26 +313,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
         norm = normalize_title(game)
         filename = entry["by_title"].get(norm)
         match_method = "exact"
+        rejected_series_conflict = []
         if filename is None:
-            candidates = get_close_matches(norm, entry["titles"], n=1, cutoff=FUZZY_CUTOFF)
-            if candidates:
-                filename = entry["by_title"][candidates[0]]
+            query_diff = _differentiator_tokens(norm)
+            for cand in get_close_matches(norm, entry["titles"], n=5, cutoff=FUZZY_CUTOFF):
+                if query_diff and not (query_diff & _differentiator_tokens(cand)):
+                    # The query names a specific series entry ("x", "3", ...)
+                    # this candidate doesn't share anywhere - likely a
+                    # different entry in the same series, not a fuzzy
+                    # variant of this one. Try the next-best candidate
+                    # instead of confidently serving the wrong game's art.
+                    rejected_series_conflict.append(cand)
+                    continue
+                filename = entry["by_title"][cand]
                 match_method = "fuzzy"
+                break
 
         if filename is None:
-            # Log the closest title regardless of cutoff (not just whether
-            # one cleared FUZZY_CUTOFF) - previously a no-match here left no
-            # trace at all, making it impossible to tell "the query title
-            # was wildly different from anything on file" (e.g. a raw MAME
-            # short-name reaching this instead of a real title) apart from
-            # "it was close but just missed the cutoff".
-            closest = get_close_matches(norm, entry["titles"], n=1, cutoff=0.0)
-            if closest:
-                ratio = SequenceMatcher(None, norm, closest[0]).ratio()
+            if rejected_series_conflict:
+                # Distinct from a plain no-match: candidates existed and
+                # cleared FUZZY_CUTOFF, but every one of them named a
+                # different series entry than the query did - see
+                # _differentiator_tokens(). Worth telling apart from "index
+                # is empty" / "nothing was even close", since this case
+                # means the *right* title probably isn't indexed at all
+                # (not that the query or the cutoff needs tuning).
                 print(f"[artwork-api] no match: {system}/{media_type} '{game}' - "
-                      f"closest on file: '{closest[0]}' (ratio {ratio:.2f}, cutoff {FUZZY_CUTOFF})")
+                      f"{len(rejected_series_conflict)} candidate(s) cleared the cutoff but named a "
+                      f"different series entry: {rejected_series_conflict}")
             else:
-                print(f"[artwork-api] no match: {system}/{media_type} '{game}' - index is empty")
+                # Log the closest title regardless of cutoff (not just
+                # whether one cleared FUZZY_CUTOFF) - previously a no-match
+                # here left no trace at all, making it impossible to tell
+                # "the query title was wildly different from anything on
+                # file" (e.g. a raw MAME short-name reaching this instead of
+                # a real title) apart from "it was close but just missed
+                # the cutoff".
+                closest = get_close_matches(norm, entry["titles"], n=1, cutoff=0.0)
+                if closest:
+                    ratio = SequenceMatcher(None, norm, closest[0]).ratio()
+                    print(f"[artwork-api] no match: {system}/{media_type} '{game}' - "
+                          f"closest on file: '{closest[0]}' (ratio {ratio:.2f}, cutoff {FUZZY_CUTOFF})")
+                else:
+                    print(f"[artwork-api] no match: {system}/{media_type} '{game}' - index is empty")
             self._respond_json(404, {"error": "no match", "system": repo_dir, "game": game})
             return
 
