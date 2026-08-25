@@ -4,7 +4,7 @@ services:
     container_name: libretro-artwork-api
     restart: unless-stopped
     ports:
-      - "8090:8090"
+      - "8478:8478"
     volumes:
       # Host directory holding the cloned libretro-thumbnails repos, e.g.
       # /home/kadafi/libretro-thumbd/Nintendo_-_..._System/, etc.
@@ -14,5 +14,5 @@ services:
       # default has to be an absolute path.
       - ${THUMBS_DIR:-/home/kadafi/libretro-thumbd}:/data:ro
     environment:
-      - PORT=8090
+      - PORT=8478
       - FUZZY_CUTOFF=0.72

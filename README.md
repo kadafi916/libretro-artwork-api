@@ -41,7 +41,7 @@ system also needs a new `SYSTEM_MAP` entry (see below).
 
 ```
 # directly
-THUMBS_DIR=/path/to/libretro-thumbd PORT=8090 python3 app.py
+THUMBS_DIR=/path/to/libretro-thumbd PORT=8478 python3 app.py
 
 # containerized (edit THUMBS_DIR in docker-compose.yml, or export it)
 docker compose up --build -d

@@ -11,8 +11,8 @@ WORKDIR /app
 COPY app.py .
 
 ENV THUMBS_DIR=/data
-ENV PORT=8090
+ENV PORT=8478
 
-EXPOSE 8090
+EXPOSE 8478
 
 CMD ["python3", "-u", "app.py"]

@@ -21,7 +21,7 @@ cloned as-is, nothing renamed):
         ...
 
 Usage:
-    THUMBS_DIR=/data PORT=8090 python3 app.py
+    THUMBS_DIR=/data PORT=8478 python3 app.py
 
 API:
     GET /artwork?system=<mister core_raw or system name>&game=<title>&type=boxart|snap|title|logo
@@ -40,7 +40,7 @@ import urllib.parse
 from difflib import get_close_matches
 
 THUMBS_DIR = os.environ.get("THUMBS_DIR", "/data")
-PORT = int(os.environ.get("PORT", "8090"))
+PORT = int(os.environ.get("PORT", "8478"))
 FUZZY_CUTOFF = float(os.environ.get("FUZZY_CUTOFF", "0.72"))
 
 TYPE_DIRS = {
