@@ -25,7 +25,7 @@ Usage:
 
 API:
     GET /artwork?system=<mister core_raw or system name>&game=<title>&type=boxart|snap|title|logo
-        -> 200 image/png on match, 404 {"error": ...} otherwise
+        -> 200 image/png on match (X-Match-Method: exact|prefix|fuzzy), 404 {"error": ...} otherwise
     GET /health
         -> 200 {"status": "ok", "systems_loaded": [...]}
     GET /coverage
@@ -165,8 +165,44 @@ def _differentiator_tokens(norm_title: str) -> set:
     the title matches. Verified real failure this was built for: a query
     for "Metal Slug X" fuzzy-matched an entry with no "x" anywhere in it at
     all - character-level similarity alone can't tell "same title, minor
-    variance" apart from "different entry, mostly-shared name"."""
-    return {w for w in norm_title.split() if w.isdigit() or len(w) == 1}
+    variance" apart from "different entry, mostly-shared name".
+
+    Only single letters and pure digits count - "-" would otherwise also
+    qualify (len 1) despite being a plain separator, not a differentiator,
+    which would wrongly treat "Metal Slug - Super Vehicle-001" as *having*
+    a differentiator ("-") and break the prefix-match tier below for the
+    plain "Metal Slug" query."""
+    return {w for w in norm_title.split() if w.isdigit() or (len(w) == 1 and w.isalpha())}
+
+
+def _prefix_match(norm: str, titles):
+    """A real box-art title is very often the query *plus a subtitle*
+    libretro-thumbnails includes and a game's short title doesn't ("Metal
+    Slug X" -> "Metal Slug X - Super Vehicle-001", "Neo Turf Masters" ->
+    "Neo Turf Masters _ Big Tournament Golf") - both real, verified cases
+    where get_close_matches' whole-string character ratio undershoots
+    FUZZY_CUTOFF simply because the real title is so much longer than the
+    query, even though the query matches its start exactly. Checked before
+    the fuzzy fallback, and restricted to a clean word boundary (the
+    character right after the shared prefix must be a space) so "super" a
+    prefix match on any title that just happens to overlap.
+
+    Differentiator-checked the same way as the fuzzy path: a query with no
+    differentiator of its own must match a candidate that *also* has none
+    (so plain "Metal Slug" doesn't grab "Metal Slug X"'s file merely
+    because it makes a valid prefix too), and a query that does name one
+    must find a candidate sharing it. Ties (multiple valid prefix matches)
+    resolve to the shortest title - the closest, most minimal superset of
+    the query."""
+    query_diff = _differentiator_tokens(norm)
+
+    def _diff_ok(t):
+        cand_diff = _differentiator_tokens(t)
+        return bool(query_diff & cand_diff) if query_diff else not cand_diff
+
+    candidates = [t for t in titles if t == norm or t.startswith(norm + " ")]
+    good = [t for t in candidates if _diff_ok(t)]
+    return min(good, key=len) if good else None
 
 
 def _candidate_rank(filename: str):
@@ -314,6 +350,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         filename = entry["by_title"].get(norm)
         match_method = "exact"
         rejected_series_conflict = []
+
+        if filename is None:
+            prefix_hit = _prefix_match(norm, entry["titles"])
+            if prefix_hit is not None:
+                filename = entry["by_title"][prefix_hit]
+                match_method = "prefix"
+
         if filename is None:
             query_diff = _differentiator_tokens(norm)
             for cand in get_close_matches(norm, entry["titles"], n=5, cutoff=FUZZY_CUTOFF):
