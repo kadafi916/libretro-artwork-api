@@ -2,9 +2,8 @@
 
 A small self-hosted HTTP API serving box art / screenshots / title screens
 from a local mirror of [libretro-thumbnails](https://github.com/libretro-thumbnails),
-built for [mister_turing_client](../mister_turing_client) (a MiSTer FPGA
-status HUD) but not specific to it - any client that can make an HTTP GET
-can use this.
+built for a MiSTer FPGA status HUD but not specific to it - any client
+that can make an HTTP GET can use this.
 
 ## Why this exists, and why self-hosted
 
@@ -44,7 +43,8 @@ below).
 # directly
 THUMBS_DIR=/path/to/libretro-thumbd PORT=8478 python3 app.py
 
-# containerized (edit THUMBS_DIR in docker-compose.yml, or export it)
+# containerized - defaults to ./thumbs alongside docker-compose.yml;
+# override with a THUMBS_DIR env var or a .env file to point elsewhere
 docker compose up --build -d
 ```
 

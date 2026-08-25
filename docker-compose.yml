@@ -7,12 +7,12 @@ services:
       - "8478:8478"
     volumes:
       # Host directory holding the cloned libretro-thumbnails repos, e.g.
-      # /home/kadafi/libretro-thumbd/Nintendo_-_..._System/, etc.
+      # THUMBS_DIR/Nintendo_-_..._System/, etc. - see README.md "Data layout".
       # Read-only: this container only ever reads the mirror, never writes
-      # to it. Override with a THUMBS_DIR env var (or a .env file) if it
-      # ever moves - compose's ${VAR:-default} does NOT expand "~", so the
-      # default has to be an absolute path.
-      - ${THUMBS_DIR:-/home/kadafi/libretro-thumbd}:/data:ro
+      # to it. Set THUMBS_DIR (env var, or a .env file next to this compose
+      # file) to point at wherever you've cloned repos into; defaults to a
+      # ./thumbs directory alongside this file if unset.
+      - ${THUMBS_DIR:-./thumbs}:/data:ro
     environment:
       - PORT=8478
       - FUZZY_CUTOFF=0.72
