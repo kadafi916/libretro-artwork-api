@@ -1,0 +1,18 @@
+services:
+  libretro-artwork-api:
+    build: .
+    container_name: libretro-artwork-api
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      # Host directory holding the cloned libretro-thumbnails repos, e.g.
+      # /home/kadafi/libretro-thumbd/Nintendo_-_..._System/, etc.
+      # Read-only: this container only ever reads the mirror, never writes
+      # to it. Override with a THUMBS_DIR env var (or a .env file) if it
+      # ever moves - compose's ${VAR:-default} does NOT expand "~", so the
+      # default has to be an absolute path.
+      - ${THUMBS_DIR:-/home/kadafi/libretro-thumbd}:/data:ro
+    environment:
+      - PORT=8090
+      - FUZZY_CUTOFF=0.72
