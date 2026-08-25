@@ -86,6 +86,26 @@ SYSTEM_MAP = {
     "saturn": "Sega_-_Saturn",
     "psx": "Sony_-_PlayStation",
     "playstation": "Sony_-_PlayStation",
+    "fds": "Nintendo_-_Family_Computer_Disk_System",
+    "gameboy": "Nintendo_-_Game_Boy",
+    "gb": "Nintendo_-_Game_Boy",
+    "gba": "Nintendo_-_Game_Boy_Advance",
+    "gameboyadvance": "Nintendo_-_Game_Boy_Advance",
+    "gba2p": "Nintendo_-_Game_Boy_Advance",
+    "n64": "Nintendo_-_Nintendo_64",
+    "nintendo64": "Nintendo_-_Nintendo_64",
+    "gg": "Sega_-_Game_Gear",
+    "mastersystem": "Sega_-_Master_System_-_Mark_III",
+    "sms": "Sega_-_Master_System_-_Mark_III",
+    "megacd": "Sega_-_Mega-CD_-_Sega_CD",
+    "segacd": "Sega_-_Mega-CD_-_Sega_CD",
+    # SNK_-_Neo_Geo_CD has no MiSTer core_raw of its own to map from: the
+    # NeoGeo core reports core_raw "neogeo" (see above) for both cartridge
+    # and CD games alike, so there's no signal here to route a CD title to
+    # this repo instead - it stays cloned-but-unreachable via this API
+    # until/unless mister_status_server exposes something that tells the
+    # two apart (e.g. the loaded image's extension).
+    #
     # Verified repo name, not yet cloned locally - safe to leave mapped; it
     # simply 404s with a clear "no local data" message until cloned.
     "arcade": "MAME",
