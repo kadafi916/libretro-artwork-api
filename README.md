@@ -71,6 +71,15 @@ GET /artwork?system=<mister core_raw>&game=<title>&type=boxart|snap|title|logo
 GET /health
     200  {"status": "ok", "systems_loaded": [...]}   repo directories actually found under THUMBS_DIR
 
+GET /coverage
+    200  {"systems_loaded": [...], "mapped_not_cloned": [...],
+           "cloned_not_mapped": [...], "aliases_by_repo": {repo: [alias, ...]},
+           "title_counts": {repo: {type_dir: N, ...}, ...}}
+         SYSTEM_MAP/THUMBS_DIR gap report: mapped_not_cloned is a SYSTEM_MAP
+         alias pointing at a repo not actually cloned yet; cloned_not_mapped
+         is a repo cloned with no core_raw alias pointing to it at all - see
+         "SYSTEM_MAP" below for why some repos can never have one.
+
 POST /reindex
     200  {"status": "ok", "systems_loaded": [...], "titles_indexed": N, "elapsed_seconds": T}
          Rescans THUMBS_DIR from scratch - call this after git clone-ing a
@@ -84,13 +93,26 @@ Matching: filenames are normalized by stripping the extension and every
 `(region)`/`[hack-flag]`-style tag, lowercasing, and collapsing whitespace.
 An incoming `game` query goes through the same normalization for an exact
 lookup; on a miss, `difflib.get_close_matches` (cutoff `0.72`, tunable via
-`FUZZY_CUTOFF`) finds the closest normalized title. When multiple files
-share a normalized title (region variants, re-releases), the best one is
-picked by region priority (USA > World > Europe > Japan > unknown) then by
-shortest filename - verified against a real case in the data itself
-(`Bonk 3 - Bonk's Big Adventure` has both a plain `(USA).png` and a
-`(USA, Europe) (Wii U Virtual Console).png`; this correctly picks the
-plain one).
+`FUZZY_CUTOFF`, checking the 5 best candidates) finds the closest
+normalized title - but only accepts one whose short "differentiator"
+tokens (single characters or pure digits, e.g. the "x" in "metal slug x",
+the "3" in "bonk 3") don't conflict with the query's. Character-level
+similarity alone can't tell "same title, minor spacing/typo variance"
+(the documented "Super Dodgeball" -> "Super Dodge Ball" case, no
+differentiator tokens involved, unaffected by this check) apart from
+"different entry in the same series, mostly-shared name" - a real,
+verified failure mode ("Metal Slug X" fuzzy-matched an unrelated entry
+with no "x" anywhere in it) this specifically closes: a query naming a
+specific entry now 404s rather than confidently serving a different
+game's box art when the right one isn't indexed. See
+`_differentiator_tokens()` in `app.py`.
+
+When multiple files share a normalized title (region variants,
+re-releases), the best one is picked by region priority (USA > World >
+Europe > Japan > unknown) then by shortest filename - verified against a
+real case in the data itself (`Bonk 3 - Bonk's Big Adventure` has both a
+plain `(USA).png` and a `(USA, Europe) (Wii U Virtual Console).png`; this
+correctly picks the plain one).
 
 ## `SYSTEM_MAP`: MiSTer core name -> RetroArch playlist directory
 
