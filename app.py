@@ -388,24 +388,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # particular game - picks a real, already-indexed file directly,
             # no title lookup involved. ?system= restricts to one SYSTEM_MAP
             # alias (same vocabulary as /artwork); omitted, any indexed repo
-            # is eligible. ?type= defaults to boxart, same as /artwork.
+            # is eligible. ?type= defaults to boxart, same as /artwork - but
+            # also accepts a comma-separated list ("boxart,snap") to pick
+            # randomly among just those, or the literal "random" to pick
+            # among all of them (shorthand for listing every TYPE_DIRS key).
             qs = urllib.parse.parse_qs(parsed.query)
             system = (qs.get("system") or [""])[0].strip().lower()
-            media_type = (qs.get("type") or ["boxart"])[0].strip().lower()
+            media_type_raw = (qs.get("type") or ["boxart"])[0].strip().lower()
 
-            type_dir = TYPE_DIRS.get(media_type)
-            if not type_dir:
-                self._respond_json(400, {"error": f"unknown type '{media_type}', use one of {list(TYPE_DIRS)}"})
+            if media_type_raw == "random":
+                requested_types = list(TYPE_DIRS.keys())
+            else:
+                requested_types = [t.strip() for t in media_type_raw.split(",") if t.strip()]
+
+            unknown = [t for t in requested_types if t not in TYPE_DIRS]
+            if not requested_types or unknown:
+                bad = unknown or ["(empty)"]
+                self._respond_json(400, {"error": f"unknown type(s) {bad}, use one or more of "
+                                                   f"{list(TYPE_DIRS)} (comma-separated), or 'random'"})
                 return
+
+            # One-to-one today (TYPE_DIRS has no two keys sharing a
+            # directory), so this reverse lookup is unambiguous - lets the
+            # response report which of the requested types actually got
+            # picked, same as the caller would already know for a single
+            # ?type= but can't otherwise tell apart in list/random mode.
+            type_dir_to_type = {TYPE_DIRS[t]: t for t in requested_types}
 
             if system:
                 repo_dir = SYSTEM_MAP.get(system)
                 if not repo_dir:
                     self._respond_json(404, {"error": f"unmapped system: {system}"})
                     return
-                candidates = [(repo_dir, type_dir)] if (repo_dir, type_dir) in _index else []
+                candidates = [(repo_dir, td) for td in type_dir_to_type if (repo_dir, td) in _index]
             else:
-                candidates = [k for k in _index.keys() if k[1] == type_dir]
+                candidates = [k for k in _index.keys() if k[1] in type_dir_to_type]
             candidates = [k for k in candidates if _index[k]["titles"]]
 
             if not candidates:
@@ -413,6 +430,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
 
             repo_dir, type_dir = random.choice(candidates)
+            media_type = type_dir_to_type[type_dir]
             entry = _index[(repo_dir, type_dir)]
             title = random.choice(entry["titles"])
             filename = entry["by_title"][title]
@@ -431,6 +449,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             # Same reasoning as /artwork's X-Match-Filename - lets a caller
             # see what it got without needing the server's own stdout log.
+            # X-Type matters here specifically because list/random mode
+            # means the caller may not already know which type it got.
+            self.send_header("X-Type", media_type)
             self.send_header("X-System", repo_dir)
             self.send_header("X-Filename", urllib.parse.quote(filename))
             self.end_headers()

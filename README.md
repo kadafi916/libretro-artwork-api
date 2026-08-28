@@ -82,15 +82,20 @@ GET /coverage
          "SYSTEM_MAP" below for why some repos can never have one.
          dropped_unresolvable_* - see "Non-image placeholder entries" below.
 
-GET /random?system=<optional>&type=boxart|snap|title|logo
-    200  image/png  (X-System: repo dir, X-Filename: the file picked)
-    400  {"error": "..."}              unknown type
+GET /random?system=<optional>&type=boxart|snap|title|logo|<comma-list>|random
+    200  image/png  (X-Type/X-System/X-Filename: what got picked)
+    400  {"error": "..."}              unknown type(s)
     404  {"error": "..."}              unmapped system, or nothing indexed for that system/type
          Picks a real, already-indexed file at random - no title lookup
          involved. Built for a slideshow-style client that just wants
          "any game art", not a specific game's (see the sibling
          random-art-display project). Omit `system` to draw from every
-         indexed repo.
+         indexed repo. `type` defaults to boxart, same as `/artwork`,
+         but also accepts a comma-separated list ("boxart,snap") to pick
+         randomly among just those, or the literal "random" to pick
+         among all four - X-Type in the response says which one actually
+         got picked, since in list/random mode the caller doesn't
+         already know.
 
 POST /reindex
     200  {"status": "ok", "systems_loaded": [...], "titles_indexed": N, "elapsed_seconds": T}
