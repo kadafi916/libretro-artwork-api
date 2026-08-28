@@ -386,14 +386,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if parsed.path == "/random":
             # For a standalone slideshow-style client, not tied to any
             # particular game - picks a real, already-indexed file directly,
-            # no title lookup involved. ?system= restricts to one SYSTEM_MAP
-            # alias (same vocabulary as /artwork); omitted, any indexed repo
-            # is eligible. ?type= defaults to boxart, same as /artwork - but
-            # also accepts a comma-separated list ("boxart,snap") to pick
-            # randomly among just those, or the literal "random" to pick
-            # among all of them (shorthand for listing every TYPE_DIRS key).
+            # no title lookup involved. ?system= restricts to one or more
+            # SYSTEM_MAP aliases (comma-separated, same vocabulary as
+            # /artwork); omitted, any indexed repo is eligible. ?exclude_system=
+            # removes one or more aliases' repos from the pool instead -
+            # combinable with ?system= (excluded aliases just have to also
+            # resolve, same validation), though the common cases are one or
+            # the other: "everything except arcade" vs "only these systems".
+            # ?type= defaults to boxart, same as /artwork - but also accepts
+            # a comma-separated list ("boxart,snap") to pick randomly among
+            # just those, or the literal "random" to pick among all of them
+            # (shorthand for listing every TYPE_DIRS key).
             qs = urllib.parse.parse_qs(parsed.query)
-            system = (qs.get("system") or [""])[0].strip().lower()
+            system_raw = (qs.get("system") or [""])[0].strip().lower()
+            exclude_raw = (qs.get("exclude_system") or [""])[0].strip().lower()
             media_type_raw = (qs.get("type") or ["boxart"])[0].strip().lower()
 
             if media_type_raw == "random":
@@ -415,14 +421,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # ?type= but can't otherwise tell apart in list/random mode.
             type_dir_to_type = {TYPE_DIRS[t]: t for t in requested_types}
 
-            if system:
-                repo_dir = SYSTEM_MAP.get(system)
-                if not repo_dir:
-                    self._respond_json(404, {"error": f"unmapped system: {system}"})
-                    return
-                candidates = [(repo_dir, td) for td in type_dir_to_type if (repo_dir, td) in _index]
+            def resolve_systems(raw, param_name):
+                """Returns (set of repo_dirs, error_response or None)."""
+                aliases = [s.strip() for s in raw.split(",") if s.strip()]
+                unmapped = [s for s in aliases if s not in SYSTEM_MAP]
+                if unmapped:
+                    return None, {"error": f"unmapped {param_name} value(s): {unmapped}"}
+                return {SYSTEM_MAP[s] for s in aliases}, None
+
+            included_repos, err = resolve_systems(system_raw, "system")
+            if err:
+                self._respond_json(404, err)
+                return
+            excluded_repos, err = resolve_systems(exclude_raw, "exclude_system")
+            if err:
+                self._respond_json(404, err)
+                return
+
+            if included_repos:
+                candidates = [(rd, td) for rd in included_repos - excluded_repos
+                              for td in type_dir_to_type if (rd, td) in _index]
             else:
-                candidates = [k for k in _index.keys() if k[1] in type_dir_to_type]
+                candidates = [k for k in _index.keys()
+                              if k[1] in type_dir_to_type and k[0] not in excluded_repos]
             candidates = [k for k in candidates if _index[k]["titles"]]
 
             if not candidates:

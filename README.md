@@ -82,20 +82,26 @@ GET /coverage
          "SYSTEM_MAP" below for why some repos can never have one.
          dropped_unresolvable_* - see "Non-image placeholder entries" below.
 
-GET /random?system=<optional>&type=boxart|snap|title|logo|<comma-list>|random
+GET /random?system=<optional>&exclude_system=<optional>&type=boxart|snap|title|logo|<comma-list>|random
     200  image/png  (X-Type/X-System/X-Filename: what got picked)
     400  {"error": "..."}              unknown type(s)
-    404  {"error": "..."}              unmapped system, or nothing indexed for that system/type
+    404  {"error": "..."}              unmapped system/exclude_system value(s), or nothing
+                                        indexed for that system/type
          Picks a real, already-indexed file at random - no title lookup
          involved. Built for a slideshow-style client that just wants
          "any game art", not a specific game's (see the sibling
-         random-art-display project). Omit `system` to draw from every
-         indexed repo. `type` defaults to boxart, same as `/artwork`,
-         but also accepts a comma-separated list ("boxart,snap") to pick
-         randomly among just those, or the literal "random" to pick
-         among all four - X-Type in the response says which one actually
-         got picked, since in list/random mode the caller doesn't
-         already know.
+         random-art-display project). `system` accepts one or more
+         SYSTEM_MAP aliases, comma-separated ("snes,n64") - an include
+         list; omitted, every indexed repo is eligible. `exclude_system`
+         is the opposite - one or more aliases whose repos get removed
+         from the pool instead ("exclude_system=arcade" for everything
+         except arcade). Combinable with `system`, though the common
+         cases are one or the other. `type` defaults to boxart, same as
+         `/artwork`, but also accepts a comma-separated list
+         ("boxart,snap") to pick randomly among just those, or the
+         literal "random" to pick among all four - X-Type in the
+         response says which one actually got picked, since in
+         list/random mode the caller doesn't already know.
 
 POST /reindex
     200  {"status": "ok", "systems_loaded": [...], "titles_indexed": N, "elapsed_seconds": T}
