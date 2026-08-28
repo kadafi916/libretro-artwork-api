@@ -42,6 +42,7 @@ API:
 import http.server
 import json
 import os
+import random
 import re
 import socketserver
 import sys
@@ -311,6 +312,60 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "aliases_by_repo": {r: sorted(a) for r, a in aliases_by_repo.items()},
                 "title_counts": title_counts,
             })
+            return
+
+        if parsed.path == "/random":
+            # For a standalone slideshow-style client, not tied to any
+            # particular game - picks a real, already-indexed file directly,
+            # no title lookup involved. ?system= restricts to one SYSTEM_MAP
+            # alias (same vocabulary as /artwork); omitted, any indexed repo
+            # is eligible. ?type= defaults to boxart, same as /artwork.
+            qs = urllib.parse.parse_qs(parsed.query)
+            system = (qs.get("system") or [""])[0].strip().lower()
+            media_type = (qs.get("type") or ["boxart"])[0].strip().lower()
+
+            type_dir = TYPE_DIRS.get(media_type)
+            if not type_dir:
+                self._respond_json(400, {"error": f"unknown type '{media_type}', use one of {list(TYPE_DIRS)}"})
+                return
+
+            if system:
+                repo_dir = SYSTEM_MAP.get(system)
+                if not repo_dir:
+                    self._respond_json(404, {"error": f"unmapped system: {system}"})
+                    return
+                candidates = [(repo_dir, type_dir)] if (repo_dir, type_dir) in _index else []
+            else:
+                candidates = [k for k in _index.keys() if k[1] == type_dir]
+            candidates = [k for k in candidates if _index[k]["titles"]]
+
+            if not candidates:
+                self._respond_json(404, {"error": "no artwork indexed for that system/type"})
+                return
+
+            repo_dir, type_dir = random.choice(candidates)
+            entry = _index[(repo_dir, type_dir)]
+            title = random.choice(entry["titles"])
+            filename = entry["by_title"][title]
+
+            path = os.path.join(THUMBS_DIR, repo_dir, type_dir, filename)
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError:
+                self._respond_json(404, {"error": "picked file missing on disk", "path": path})
+                return
+
+            print(f"[artwork-api] /random {media_type} -> {repo_dir}/{filename}")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            # Same reasoning as /artwork's X-Match-Filename - lets a caller
+            # see what it got without needing the server's own stdout log.
+            self.send_header("X-System", repo_dir)
+            self.send_header("X-Filename", urllib.parse.quote(filename))
+            self.end_headers()
+            self.wfile.write(data)
             return
 
         if parsed.path != "/artwork":
