@@ -74,11 +74,23 @@ GET /health
 GET /coverage
     200  {"systems_loaded": [...], "mapped_not_cloned": [...],
            "cloned_not_mapped": [...], "aliases_by_repo": {repo: [alias, ...]},
-           "title_counts": {repo: {type_dir: N, ...}, ...}}
+           "title_counts": {repo: {type_dir: N, ...}, ...},
+           "dropped_unresolvable_count": N, "dropped_unresolvable_sample": [...]}
          SYSTEM_MAP/THUMBS_DIR gap report: mapped_not_cloned is a SYSTEM_MAP
          alias pointing at a repo not actually cloned yet; cloned_not_mapped
          is a repo cloned with no core_raw alias pointing to it at all - see
          "SYSTEM_MAP" below for why some repos can never have one.
+         dropped_unresolvable_* - see "Non-image placeholder entries" below.
+
+GET /random?system=<optional>&type=boxart|snap|title|logo
+    200  image/png  (X-System: repo dir, X-Filename: the file picked)
+    400  {"error": "..."}              unknown type
+    404  {"error": "..."}              unmapped system, or nothing indexed for that system/type
+         Picks a real, already-indexed file at random - no title lookup
+         involved. Built for a slideshow-style client that just wants
+         "any game art", not a specific game's (see the sibling
+         random-art-display project). Omit `system` to draw from every
+         indexed repo.
 
 POST /reindex
     200  {"status": "ok", "systems_loaded": [...], "titles_indexed": N, "elapsed_seconds": T}
@@ -148,6 +160,39 @@ A query for a system not in the table, or mapped but not yet cloned into
 came in unmapped, so gaps are easy to spot from real usage instead of
 guessed at up front.
 
+## Non-image placeholder entries
+
+A small fraction of files in these thumbnail repos aren't images at all.
+Found in the field: `Atari_-_Lynx/Named_Boxarts/ZZZ-UNK-Jimmy Conners'
+Tennis (UE).png` is a genuine, intentionally-committed **regular file**
+(not a symlink) whose entire content is the text `Jimmy Connors' Tennis
+(USA, Europe).png` - a manual "the real file is over there" pointer
+some contributors use for placeholder/unknown-variant entries, rather
+than a git symlink. Serving it as-is (as `/artwork` originally did, and
+as `/random` would have) means `Content-Type: image/png` with a couple
+dozen bytes of plain text and no error anywhere - a client only finds
+out when it tries to decode the "image" and fails.
+
+**Ruled out, so the next person doesn't re-chase it:** this looks exactly
+like the well-known "git checked out a symlink as a text file containing
+its target" failure mode (happens when `core.symlinks` is `false` for a
+clone), and that was the first theory here too. It's wrong for this
+data: `core.symlinks` was unset (not `false`) on every one of the 25
+cloned repos, this filesystem verifiably creates real symlinks fine
+(tested directly with `ln -s`), and forcing `core.symlinks=true` +
+`git checkout-index -f -a` across all 25 repos changed nothing - the
+real symlink counts were identical before and after. These files were
+never symlinks; they're plain files, by design, in the upstream data.
+
+**The actual fix** (`_resolve_real_filename()` in `app.py`, run once per
+winning candidate at index time, not per-request): check the file for
+the PNG magic header; if absent, try its own content as a sibling
+filename in the same directory (exactly the convention above), and use
+*that* file's bytes instead. An entry that resolves neither way is
+dropped from the index entirely rather than ever served. Visible via
+`/coverage`'s `dropped_unresolvable_count`/`_sample` without needing
+filesystem access.
+
 ## Tested against real data
 
 With `NEC_-_PC_Engine_-_TurboGrafx_16` and `Nintendo_-_Nintendo_Entertainment_System`
@@ -162,3 +207,6 @@ With `NEC_-_PC_Engine_-_TurboGrafx_16` and `Nintendo_-_Nintendo_Entertainment_Sy
 - Unmapped system -> clean `404 {"error": "unmapped system: bogus"}`.
 - `type=snap` -> a real, much smaller in-game-screenshot PNG, distinct
   from the boxart response for the same game.
+- All 25 repos actually cloned (111,519 candidate entries): 329 (~0.3%)
+  were non-image placeholder files - see "Non-image placeholder entries"
+  above. All 329 dropped from the index rather than ever served.
