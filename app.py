@@ -139,6 +139,54 @@ _REGION_PRIORITY = ["usa", "world", "europe", "japan"]
 
 _index = {}          # (repo_dir, type_dir) -> {"by_title": {norm: filename}, "titles": [norm, ...]}
 _systems_loaded = []  # repo_dirs actually found under THUMBS_DIR at startup
+_dropped_entries = []  # see _resolve_real_filename - entries indexed but excluded because
+                        # neither they nor what they point at actually have image bytes
+
+_PNG_MAGIC = b"\x89PNG"
+
+
+def _resolve_real_filename(type_path: str, filename: str):
+    """Some libretro-thumbnails entries are symlinks aliasing a canonical
+    file under a different name (e.g. a "ZZZ-UNK-..." placeholder pointing
+    at the real title). When the repo is cloned somewhere that doesn't
+    materialize symlinks properly (confirmed on this NAS's checkout), the
+    checkout leaves a small regular file whose CONTENT is just the link
+    target's filename, instead of a real symlink or real image bytes -
+    served as a handful of bytes of plain text under Content-Type:
+    image/png otherwise, with no error anywhere until a client tries to
+    decode it as an image.
+
+    Detected by checking for the PNG magic header; when absent, the
+    file's own content is tried as a sibling filename in the same
+    directory (one level of indirection only, no chasing a chain of
+    placeholders). Returns the filename that actually has real image
+    bytes, or None if it can't be resolved - callers should exclude it
+    from the index entirely rather than ever serve it."""
+    path = os.path.join(type_path, filename)
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4)
+    except OSError:
+        return None
+    if head.startswith(_PNG_MAGIC):
+        return filename
+
+    try:
+        with open(path, "rb") as f:
+            target = f.read(300).decode("utf-8", "replace").strip()
+    except OSError:
+        return None
+    # Only trust this as a sibling-filename alias if it actually looks like
+    # one (a plausible bare filename, not some other kind of corrupt file).
+    if not target or "/" in target or "\x00" in target or len(target) > 255:
+        return None
+    target_path = os.path.join(type_path, target)
+    try:
+        with open(target_path, "rb") as f:
+            target_head = f.read(4)
+    except OSError:
+        return None
+    return target if target_head.startswith(_PNG_MAGIC) else None
 
 
 def normalize_title(name: str) -> str:
@@ -231,9 +279,10 @@ def build_index():
     global _systems_loaded
     index = {}
     loaded = []
+    dropped = []
     if not os.path.isdir(THUMBS_DIR):
         print(f"[artwork-api] WARNING: THUMBS_DIR {THUMBS_DIR} does not exist", file=sys.stderr)
-        _index_ready(index, loaded)
+        _index_ready(index, loaded, dropped)
         return
 
     for repo_dir in sorted(os.listdir(THUMBS_DIR)):
@@ -253,17 +302,32 @@ def build_index():
                 rank = _candidate_rank(fname)
                 if norm not in best or rank < best[norm][1]:
                     best[norm] = (fname, rank)
-            by_title = {k: v[0] for k, v in best.items()}
+            # Resolved here, once per winning candidate, rather than at
+            # serve time - see _resolve_real_filename. A broken entry with
+            # no usable target is dropped outright rather than left in the
+            # index to be discovered later as a 200 response full of
+            # garbage bytes.
+            by_title = {}
+            for norm, (fname, _rank) in best.items():
+                resolved = _resolve_real_filename(type_path, fname)
+                if resolved:
+                    by_title[norm] = resolved
+                else:
+                    dropped.append(f"{repo_dir}/{type_dir}/{fname}")
             index[(repo_dir, type_dir)] = {"by_title": by_title, "titles": list(by_title.keys())}
             print(f"[artwork-api] indexed {repo_dir}/{type_dir}: {len(by_title)} titles")
 
-    _index_ready(index, loaded)
+    if dropped:
+        print(f"[artwork-api] dropped {len(dropped)} unresolvable entries "
+              f"(broken symlink placeholders - see /coverage)")
+    _index_ready(index, loaded, dropped)
 
 
-def _index_ready(index, loaded):
-    global _index, _systems_loaded
+def _index_ready(index, loaded, dropped):
+    global _index, _systems_loaded, _dropped_entries
     _index = index
     _systems_loaded = loaded
+    _dropped_entries = dropped
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -311,6 +375,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "cloned_not_mapped": sorted(cloned_repos - mapped_repos),
                 "aliases_by_repo": {r: sorted(a) for r, a in aliases_by_repo.items()},
                 "title_counts": title_counts,
+                # See _resolve_real_filename - entries that were on disk
+                # but excluded because neither they nor what their content
+                # pointed at actually had real image bytes.
+                "dropped_unresolvable_count": len(_dropped_entries),
+                "dropped_unresolvable_sample": _dropped_entries[:50],
             })
             return
 
